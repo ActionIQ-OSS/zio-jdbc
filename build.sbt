@@ -5,6 +5,7 @@ val H2Version        = "2.1.210"
 val ZioSchemaVersion = "0.2.1"
 
 name := "zio-jdbc"
+version := "0.0.2-snapshot"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -31,14 +32,26 @@ addCommandAlias(
 lazy val root = project
   .in(file("."))
   .settings(
-    publish / skip := true
+    publish / skip := true,
   )
   .aggregate(core, docs, examples)
+
 
 lazy val core = project
   .in(file("core"))
   .settings(stdSettings("zio-jdbc"))
   .settings(
+    assembly / assemblyJarName := "zio-jdbc-assembly-0.0.2-SNAPSHOT.jar",
+    assemblyMergeStrategy := {
+      case PathList("META-INF") => MergeStrategy.concat
+      case _ => MergeStrategy.first
+    },
+    assemblyPackageScala / assembleArtifact := false,
+    assembly / packageOptions ~= { pos =>
+      pos.filterNot { po =>
+        po.isInstanceOf[Package.MainClass]
+      }
+    },
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio"          % ZioVersion,
       "dev.zio"       %% "zio-streams"  % ZioVersion,
@@ -61,7 +74,7 @@ lazy val docs = project
     projectName                                := "ZIO JDBC",
     mainModuleName                             := (core / moduleName).value,
     projectStage                               := ProjectStage.Research,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core)
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core),
   )
   .dependsOn(core)
   .enablePlugins(WebsitePlugin)
