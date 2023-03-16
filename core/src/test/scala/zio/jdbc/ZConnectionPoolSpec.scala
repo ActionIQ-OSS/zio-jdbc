@@ -41,6 +41,12 @@ object ZConnectionPoolSpec extends ZIOSpecDefault {
   val sherlockHolmes: User = User("Sherlock Holmes", 42)
   val johnWatson: User = User("John Watson", 40)
 
+  val user1: UserNoId = UserNoId("User 1", 3)
+  val user2: UserNoId = UserNoId("User 2", 4)
+  val user3: UserNoId = UserNoId("John Watson II", 32)
+  val user4: UserNoId = UserNoId("John Watson III", 98)
+  val user5: UserNoId = UserNoId("Sherlock Holmes II", 2)
+
   val createUsers: ZIO[ZConnectionPool with Any, Throwable, Unit] =
     transaction {
       execute(sql"""
@@ -52,12 +58,31 @@ object ZConnectionPoolSpec extends ZIOSpecDefault {
       """)
     }
 
+  val createUsersNoId: ZIO[ZConnectionPool with Any, Throwable, Unit] = transaction {
+    execute(sql"""
+    create table users_no_id (
+        name varchar not null,
+        age int not null
+    )
+     """)
+  }
+
   val insertSherlock: ZIO[ZConnectionPool with Any, Throwable, UpdateResult] =
     transaction {
       insert {
         sql"insert into users values (default, ${sherlockHolmes.name}, ${sherlockHolmes.age})"
       }
     }
+
+  val insertBatches: ZIO[ZConnectionPool, Throwable, Long] = transaction {
+    val users = Seq(user1, user2, user3, user4, user5)
+    val mapped = users.map(Sql.insertInto("users_no_id")("name","age").values(_))
+    for {
+      inserted <- ZIO.foreach(mapped)(zio.jdbc.insert(_))
+    } yield {
+      inserted.map(_.rowsUpdated).sum
+    }
+  }
 
   val insertWatson: ZIO[ZConnectionPool with Any, Throwable, UpdateResult] =
     transaction {
@@ -70,6 +95,24 @@ object ZConnectionPoolSpec extends ZIOSpecDefault {
   object User {
     implicit val jdbcDecoder: JdbcDecoder[User] =
       JdbcDecoder[(String, Int)]().map[User](t => User(t._1, t._2))
+
+    implicit val jdbcEncoder: JdbcEncoder[User] = (value: User) => {
+      val name = value.name
+      val age = value.age
+      sql"""${name}""" ++ ", " ++ s"${age}"
+    }
+  }
+
+  final case class UserNoId(name: String, age: Int)
+  object UserNoId {
+    implicit val jdbcDecoder: JdbcDecoder[UserNoId] =
+      JdbcDecoder[(String, Int)]().map[UserNoId](t => UserNoId(t._1, t._2))
+
+    implicit val jdbcEncoder: JdbcEncoder[UserNoId] = (value: UserNoId) => {
+      val name = value.name
+      val age = value.age
+      sql"""${name}""" ++ ", " ++ s"${age}"
+    }
   }
 
   def spec: Spec[TestEnvironment, Any] =
@@ -144,6 +187,12 @@ object ZConnectionPoolSpec extends ZIOSpecDefault {
                   _      <- createUsers
                   result <- insertSherlock
                 } yield assertTrue(result.rowsUpdated == 1L) && assertTrue(result.updatedKeys.nonEmpty)
+              } +
+              test("insertBatch") {
+                for {
+                  _      <- createUsersNoId
+                  result <- insertBatches
+                } yield assertTrue(result == 5)
               } +
               test("select one") {
                 for {
